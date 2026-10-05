@@ -527,6 +527,11 @@ document.addEventListener("touchend", e => {
 });
 
 // ---------- 触屏方向按钮(无键盘设备) ----------
+// 保险:即使 pointer:coarse 媒体查询失效,一旦发生触摸也显示方向键
+window.addEventListener("touchstart", function showPads() {
+  document.getElementById("touch-controls").style.display = "grid";
+  window.removeEventListener("touchstart", showPads);
+}, { passive: true });
 document.querySelectorAll(".pad[data-dir]").forEach(b => {
   b.addEventListener("pointerdown", e => {
     e.preventDefault();
