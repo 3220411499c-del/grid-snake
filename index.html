@@ -244,8 +244,8 @@
     <button class="pad down" data-dir="down" aria-label="向下">↓</button>
   </div>
   <footer>
-    <span class="kb-only"><kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 转向 ·
-    <kbd>空格</kbd> 开始/暂停 · <kbd>R</kbd> 重开 · <kbd>Esc</kbd> 菜单 · </span><span class="touch-only">滑动屏幕或点按钮转向 · 中间键暂停 · </span>边缘穿越回卷,撞到自己或障碍结束
+    <span class="kb-only"><kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 转向 · 长按 1.5× 加速 ·
+    <kbd>空格</kbd> 开始/暂停 · <kbd>R</kbd> 重开 · <kbd>Esc</kbd> 菜单 · </span><span class="touch-only">滑动或点按钮转向 · 按住按钮 1.5× 加速 · </span>边缘穿越回卷,撞到自己或障碍结束
   </footer>
 </div>
 
@@ -650,10 +650,28 @@ function freeCell(x, y) {
   return true;
 }
 function spawnFood() {
-  const free = [];
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++)
-    if (freeCell(x, y)) free.push({ x, y });
-  food = free.length ? free[Math.floor(Math.random() * free.length)] : null;
+  const occ = moverCellSet(), tur = solidTurretSet();
+  const free = [], safe = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const k = key(x, y);
+    if (obstacleSet.has(k) || occ.has(k) || tur.has(k)) continue;
+    if (pulses.some(p => p.x === x && p.y === y)) continue;
+    if (snake.some(s => s.x === x && s.y === y)) continue;
+    if (food && food.x === x && food.y === y) continue;
+    free.push({ x, y });
+    // 安全格:至少 2 个可通行邻居(含回卷),保证吃完能全身而退
+    let freeN = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = wrap(x + dx), ny = wrap(y + dy);
+      const nk = key(nx, ny);
+      if (obstacleSet.has(nk) || occ.has(nk) || tur.has(nk)) continue;
+      if (pulses.some(p => p.x === nx && p.y === ny)) continue;
+      freeN++;
+    }
+    if (freeN >= 2) safe.push({ x, y });
+  }
+  const pool = safe.length ? safe : free;   // 实在没有安全格才退而求其次
+  food = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 function randomFreeCell(avoidSafe) {
   for (let tries = 0; tries < 300; tries++) {
@@ -782,7 +800,12 @@ function gotoLevel(n) {
 }
 function scheduleTick() {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(tick, tickMs);
+  timer = setTimeout(tick, effectiveTickMs());
+}
+// 长按方向键/屏幕方向键:节拍加快到原来的 1.5 倍
+const heldDirs = new Set();
+function effectiveTickMs() {
+  return heldDirs.size ? Math.max(40, Math.round(tickMs / 1.5)) : tickMs;
 }
 function tick() {
   timer = null;
@@ -1148,6 +1171,10 @@ const KEYMAP = {
 document.addEventListener("keydown", e => {
   if (KEYMAP[e.code]) {
     e.preventDefault();
+    if (!heldDirs.has(e.code)) {           // 首次按下:进入长按加速(自动重复按键不重复触发)
+      heldDirs.add(e.code);
+      if (state === "playing") scheduleTick();
+    }
     if (state === "playing") enqueue(DIRS[KEYMAP[e.code]]);
     return;
   }
@@ -1164,7 +1191,13 @@ document.addEventListener("keydown", e => {
     if (state === "paused" || state === "gameover" || state === "levelclear" || state === "victory") openMenu("levels");
   }
 });
-window.addEventListener("blur", () => { if (state === "playing") togglePause(); });
+document.addEventListener("keyup", e => {
+  if (KEYMAP[e.code] && heldDirs.delete(e.code) && state === "playing") scheduleTick();
+});
+window.addEventListener("blur", () => {
+  heldDirs.clear();
+  if (state === "playing") togglePause();
+});
 
 // ---------- 触屏滑动转向 ----------
 let touchStart = null;
@@ -1194,9 +1227,16 @@ window.addEventListener("touchstart", function showPads() {
 document.querySelectorAll(".pad[data-dir]").forEach(b => {
   b.addEventListener("pointerdown", e => {
     e.preventDefault();
+    if (!heldDirs.has("pad")) {              // 按住屏幕方向键同样加速
+      heldDirs.add("pad");
+      if (state === "playing") scheduleTick();
+    }
     if (state === "playing") enqueue(DIRS[b.dataset.dir]);
   });
 });
+["pointerup", "pointercancel"].forEach(ev => window.addEventListener(ev, () => {
+  if (heldDirs.delete("pad") && state === "playing") scheduleTick();
+}));
 $("pad-pause").addEventListener("pointerdown", e => {
   e.preventDefault();
   if (state === "playing" || state === "paused") togglePause();
@@ -1234,6 +1274,7 @@ window.game = {
     startLevel, startEndless, gotoLevel,
     addScore: n => { score += n; if (mode === "endless") { applyTiers(); spawnFood(); } updateHUD(); },
     debugClear: () => { if (mode === "level") { eaten = quota; levelClear(); } },
+    rerollFood: () => { spawnFood(); return food; },
   },
 };
 </script>
