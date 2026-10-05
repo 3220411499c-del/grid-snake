@@ -93,6 +93,42 @@
     font-size: 12px;
     color: var(--dim);
   }
+  /* 触屏方向键(仅触屏设备显示) */
+  #touch-controls {
+    display: none;
+    grid-template-columns: repeat(3, 64px);
+    grid-template-rows: repeat(3, 52px);
+    gap: 8px;
+    justify-content: center;
+    margin-top: 12px;
+    touch-action: none;
+  }
+  @media (pointer: coarse) {
+    #touch-controls { display: grid; }
+    .touch-only { display: inline; }
+    .kb-only { display: none; }
+  }
+  .touch-only { display: none; }
+  .pad {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 12px;
+    font-size: 26px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+    padding: 0;
+  }
+  .pad:active { background: var(--green); color: #06240f; }
+  .pad.up    { grid-area: 1 / 2; }
+  .pad.left  { grid-area: 2 / 1; }
+  .pad.center{ grid-area: 2 / 2; font-size: 20px; }
+  .pad.right { grid-area: 2 / 3; }
+  .pad.down  { grid-area: 3 / 2; }
   footer kbd {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -122,10 +158,16 @@
       <div id="ov-btns"></div>
     </div>
   </div>
+  <div id="touch-controls" aria-label="触屏方向键">
+    <button class="pad up" data-dir="up" aria-label="向上">↑</button>
+    <button class="pad left" data-dir="left" aria-label="向左">←</button>
+    <button class="pad center" id="pad-pause" aria-label="暂停或继续">⏸</button>
+    <button class="pad right" data-dir="right" aria-label="向右">→</button>
+    <button class="pad down" data-dir="down" aria-label="向下">↓</button>
+  </div>
   <footer>
-    <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 转向 ·
-    <kbd>空格</kbd> 开始/暂停 · <kbd>R</kbd> 重开本关 · 📱 滑动屏幕转向
-    · 边缘穿越回卷,撞到自己或障碍物结束
+    <span class="kb-only"><kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 转向 ·
+    <kbd>空格</kbd> 开始/暂停 · <kbd>R</kbd> 重开本关 · </span><span class="touch-only">滑动屏幕或点按钮转向 · 中间键暂停 · </span>边缘穿越回卷,撞到自己或障碍物结束
   </footer>
 </div>
 
@@ -206,6 +248,8 @@ function updateHUD() {
   hud.level.textContent = level;
   hud.progress.textContent = eaten + "/" + quota;
   hud.best.textContent = best;
+  const pad = $("pad-pause");
+  if (pad) pad.textContent = state === "paused" ? "▶" : "⏸";
 }
 function showOverlay(title, cls, sub, btns) {
   ovTitle.textContent = title;
@@ -360,11 +404,13 @@ function togglePause() {
   if (state === "playing") {
     state = "paused";
     if (timer) { clearTimeout(timer); timer = null; }
+    updateHUD();
     draw();
     showOverlay("已暂停", "pause", "按 空格 继续", [["继续", togglePause]]);
   } else if (state === "paused") {
     state = "playing";
     hideOverlay();
+    updateHUD();
     scheduleTick();
   }
 }
@@ -478,6 +524,19 @@ document.addEventListener("touchend", e => {
   if (state !== "playing") return;
   enqueue(absX > absY ? (dx > 0 ? DIRS.right : DIRS.left)
                       : (dy > 0 ? DIRS.down : DIRS.up));
+});
+
+// ---------- 触屏方向按钮(无键盘设备) ----------
+document.querySelectorAll(".pad[data-dir]").forEach(b => {
+  b.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    if (state === "playing") enqueue(DIRS[b.dataset.dir]);
+  });
+});
+$("pad-pause").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  if (state === "start") startGame();
+  else if (state === "playing" || state === "paused") togglePause();
 });
 
 // ---------- 启动画面 ----------
