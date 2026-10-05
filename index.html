@@ -324,6 +324,34 @@ function pushBoard(score) {
   const rank = top.indexOf(entry);
   return rank === -1 ? 0 : rank + 1;
 }
+// ---------- 进度码:跨浏览器/设备迁移进度 ----------
+function exportProgressCode() {
+  const payload = { v: 1, p: loadProgress(), b: loadBoard(), n: store.get(NAME_KEY, "玩家") };
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+function importProgressCode(code) {
+  try {
+    const json = JSON.parse(decodeURIComponent(escape(atob(String(code).trim()))));
+    if (!json || !json.p || typeof json.p.unlocked !== "number") return null;
+    const cur = loadProgress();
+    const merged = {
+      unlocked: Math.max(cur.unlocked, Math.min(LEVEL_COUNT, json.p.unlocked)),   // 解锁只增不减
+      endless: !!(cur.endless || json.p.endless),
+      cleared: Array.from(new Set([...(cur.cleared || []), ...(json.p.cleared || [])]))
+        .filter(n => Number.isInteger(n) && n >= 1 && n <= LEVEL_COUNT).sort((a, b) => a - b),
+    };
+    saveProgress(merged);
+    const map = new Map();
+    [...loadBoard(), ...(Array.isArray(json.b) ? json.b : [])].forEach(e => {
+      if (!e || typeof e.score !== "number") return;
+      const k2 = e.score + "|" + (e.date || "") + "|" + (e.name || "");
+      if (!map.has(k2)) map.set(k2, { score: e.score, date: e.date || "", name: e.name || "玩家" });
+    });
+    store.set(BOARD_KEY, [...map.values()].sort((a, b) => b.score - a.score).slice(0, 10));
+    if (json.n) store.set(NAME_KEY, String(json.n).slice(0, 8));
+    return merged;
+  } catch { return null; }
+}
 
 // ---------- 100 关程序化生成 ----------
 // 难度梯度(参考开源网格关卡设计的对称图案 + 宽走廊思路):
@@ -979,6 +1007,27 @@ function renderMenu() {
     note.className = "menu-note";
     note.textContent = "通关当前关卡解锁下一关 · 通关第 5 关解锁无尽模式 · 共 " + LEVEL_COUNT + " 关";
     body.appendChild(note);
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;";
+    const exp = document.createElement("button");
+    exp.className = "ghost";
+    exp.textContent = "导出进度";
+    exp.addEventListener("click", () => {
+      prompt("这是你的进度码(整段复制保存)。换浏览器或设备时,点「导入进度」粘贴即可:", exportProgressCode());
+    });
+    const imp = document.createElement("button");
+    imp.className = "ghost";
+    imp.textContent = "导入进度";
+    imp.addEventListener("click", () => {
+      const code = prompt("粘贴进度码(合并策略:解锁关卡只增不减,排行榜取并集):");
+      if (code == null) return;
+      const r = importProgressCode(code);
+      alert(r ? "导入成功!已解锁至第 " + r.unlocked + " 关" + (r.endless ? ",无尽模式已开启" : "") : "进度码无效,请检查是否复制完整");
+      if (r) renderMenu();
+    });
+    row.appendChild(exp);
+    row.appendChild(imp);
+    body.appendChild(row);
   } else if (menuTab === "endless") {
     const unlocked = !!prog.endless;
     if (unlocked) {
